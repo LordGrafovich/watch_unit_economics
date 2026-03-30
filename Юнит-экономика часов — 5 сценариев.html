@@ -1,0 +1,353 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Юнит-экономика часов — 5 сценариев</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: system-ui, -apple-system, sans-serif; color: #1a1a1a; background: #fff; padding: 24px; max-width: 720px; margin: 0 auto; }
+  .section { margin-bottom: 28px; }
+  .section-title { font-size: 16px; font-weight: 500; margin-bottom: 12px; }
+  .grid2 { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1fr); gap: 10px; }
+  .grid3 { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1fr) minmax(0,1fr); gap: 10px; }
+  .metric { background: #f5f5f5; border-radius: 8px; padding: 12px; }
+  .metric-label { font-size: 12px; color: #666; margin-bottom: 2px; }
+  .metric-val { font-size: 18px; font-weight: 500; }
+  .metric-val.green { color: #1D9E75; }
+  .metric-val.red { color: #E24B4A; }
+  .metric-val.blue { color: #185FA5; }
+  .row { display: flex; justify-content: space-between; align-items: center; padding: 7px 0; border-bottom: 0.5px solid rgba(0,0,0,.12); font-size: 13px; }
+  .row:last-child { border-bottom: none; }
+  .row-label { color: #666; flex: 1; }
+  .row-val { font-weight: 500; min-width: 72px; text-align: right; }
+  .row-note { font-size: 12px; color: #999; min-width: 80px; text-align: right; }
+  .slider-row { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+  .slider-row label { font-size: 13px; color: #666; min-width: 130px; }
+  .slider-row input[type=range] { flex: 1; accent-color: #534AB7; }
+  .slider-row .sl-val { font-size: 13px; font-weight: 500; min-width: 70px; text-align: right; }
+  .scenario-tabs { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 14px; }
+  .scenario-tabs button { padding: 5px 10px; font-size: 12px; border-radius: 8px; border: 0.5px solid rgba(0,0,0,.3); background: transparent; cursor: pointer; color: #1a1a1a; transition: background .15s; }
+  .scenario-tabs button:hover { background: #f5f5f5; }
+  .scenario-tabs button.active { background: #E6F1FB; border-color: #85B7EB; color: #185FA5; font-weight: 500; }
+  .divider { height: 0.5px; background: rgba(0,0,0,.15); margin: 14px 0; }
+  .total-row { display: flex; justify-content: space-between; align-items: baseline; padding: 8px 0; font-size: 15px; }
+  .total-row .total-label { font-weight: 500; }
+  .total-row .total-val { font-size: 18px; font-weight: 500; }
+  .chart-wrap { position: relative; width: 100%; height: 240px; margin: 14px 0; }
+  .hint { font-size: 12px; color: #999; line-height: 1.5; margin-top: 6px; }
+  h1 { font-size: 20px; font-weight: 500; margin-bottom: 6px; }
+  .subtitle { font-size: 14px; color: #666; margin-bottom: 24px; }
+</style>
+</head>
+<body>
+
+<h1>Юнит-экономика наручных часов</h1>
+<p class="subtitle">Интерактивная модель: переменные + постоянные затраты, точка безубыточности, сценарии</p>
+
+<div class="section">
+  <div class="section-title">Модель часов</div>
+  <div class="scenario-tabs" id="scenTabs"></div>
+  <p class="hint" id="scenDesc"></p>
+</div>
+
+<div class="section">
+  <div class="section-title">Настройки</div>
+  <div id="sliders"></div>
+</div>
+
+<div class="section">
+  <div class="section-title">Переменные затраты на 1 шт.</div>
+  <div id="varCosts"></div>
+  <div class="divider"></div>
+  <div class="total-row"><span class="total-label">Себестоимость компонентов</span><span class="total-val" id="unitCost"></span></div>
+</div>
+
+<div class="section">
+  <div class="section-title">Постоянные затраты (год)</div>
+  <div id="fixCosts"></div>
+  <div class="divider"></div>
+  <div class="total-row"><span class="total-label">Постоянные / год</span><span class="total-val" id="fixTotal"></span></div>
+</div>
+
+<div class="section">
+  <div class="section-title">Юнит-экономика</div>
+  <div class="grid3" id="metrics"></div>
+</div>
+
+<div class="section">
+  <div class="section-title">Точка безубыточности</div>
+  <div class="chart-wrap"><canvas id="bepChart"></canvas></div>
+  <p class="hint" id="bepHint"></p>
+</div>
+
+<div class="section">
+  <div class="section-title">Водопад: от деталей до полки</div>
+  <div class="chart-wrap"><canvas id="wfChart"></canvas></div>
+</div>
+
+<p class="hint" style="margin-top: 24px;">* Данные — экспертная оценка на основе открытых источников (Meranom, отчётности заводов, отраслевых публикаций). Курс $1 = 95 ₽.</p>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<script>
+const FX = 95;
+
+const scenarios = [
+  {
+    id: 'vostok', label: 'Восток Командирские',
+    desc: 'Чистопольский завод. Калибр 2414 (ручной завод), латунь + хром, органическое стекло, нейлон. Розница ~5 500 ₽. Крупносерийное конвейерное производство.',
+    movement: 18, caseMat: 8, glass: 1, dial: 3, hands: 2, strap: 3, gaskets: 1, lume: 1, crown: 2, caseback: 3, packaging: 2, assembly: 5, qc: 2, finishing: 2,
+    volume: 50000, retail: 5500,
+    rent: 6000000, salaries: 36000000, equipment: 12000000, certification: 1200000, marketing: 2400000, rd: 1800000, warranty: 1200000, admin: 4800000
+  },
+  {
+    id: 'amfibia', label: 'Восток Амфибия',
+    desc: 'Калибр 2416 (автоподзавод), нерж. сталь, органическое стекло, браслет. Розница ~8 500 ₽. Дайверские 200 м.',
+    movement: 39, caseMat: 25, glass: 1, dial: 6, hands: 3, strap: 12, gaskets: 2, lume: 2, crown: 3, caseback: 5, packaging: 2, assembly: 8, qc: 3, finishing: 3,
+    volume: 40000, retail: 8500,
+    rent: 6000000, salaries: 36000000, equipment: 12000000, certification: 1200000, marketing: 2400000, rd: 1800000, warranty: 1200000, admin: 4800000
+  },
+  {
+    id: 'raketa', label: 'Ракета Автомат',
+    desc: 'Петродворцовый завод. Мануфактурный калибр Ракета-Автомат, сталь 316L, сапфир, кожа. Розница ~85 000 ₽. Производство полного цикла.',
+    movement: 250, caseMat: 60, glass: 12, dial: 35, hands: 10, strap: 20, gaskets: 4, lume: 5, crown: 8, caseback: 12, packaging: 15, assembly: 60, qc: 25, finishing: 45,
+    volume: 5000, retail: 85000,
+    rent: 9600000, salaries: 60000000, equipment: 18000000, certification: 3000000, marketing: 12000000, rd: 9000000, warranty: 3000000, admin: 7200000
+  },
+  {
+    id: 'micro', label: 'Микробренд (Sellita)',
+    desc: 'Гипотетический российский микробренд. Sellita SW200, сталь 316L, сапфир, кожа. Розница ~50 000 ₽.',
+    movement: 85, caseMat: 30, glass: 12, dial: 20, hands: 8, strap: 15, gaskets: 3, lume: 4, crown: 5, caseback: 8, packaging: 8, assembly: 25, qc: 10, finishing: 15,
+    volume: 2000, retail: 50000,
+    rent: 3600000, salaries: 9600000, equipment: 2400000, certification: 600000, marketing: 3000000, rd: 1200000, warranty: 600000, admin: 1800000
+  },
+  {
+    id: 'eta_premium', label: 'Премиум (ETA + 904L)',
+    desc: 'ETA 2824-2, сталь 904L, сапфир AR×2, стальной браслет. Розница ~150 000 ₽.',
+    movement: 380, caseMat: 90, glass: 15, dial: 40, hands: 12, strap: 55, gaskets: 5, lume: 6, crown: 10, caseback: 15, packaging: 15, assembly: 50, qc: 20, finishing: 40,
+    volume: 800, retail: 150000,
+    rent: 3600000, salaries: 12000000, equipment: 3600000, certification: 900000, marketing: 6000000, rd: 3000000, warranty: 1200000, admin: 2400000
+  }
+];
+
+let S = JSON.parse(JSON.stringify(scenarios[0]));
+let activeScen = 'vostok';
+
+const varItems = [
+  { key: 'movement', label: 'Механизм (калибр)' },
+  { key: 'caseMat', label: 'Корпус (материал + обработка)' },
+  { key: 'glass', label: 'Стекло' },
+  { key: 'dial', label: 'Циферблат' },
+  { key: 'hands', label: 'Стрелки' },
+  { key: 'strap', label: 'Ремешок / браслет' },
+  { key: 'gaskets', label: 'Прокладки, уплотнители' },
+  { key: 'lume', label: 'Люминесцент' },
+  { key: 'crown', label: 'Заводная головка' },
+  { key: 'caseback', label: 'Задняя крышка' },
+  { key: 'packaging', label: 'Упаковка' },
+  { key: 'assembly', label: 'Сборка (труд)' },
+  { key: 'qc', label: 'Контроль качества' },
+  { key: 'finishing', label: 'Финишная обработка' },
+];
+
+const fixItems = [
+  { key: 'rent', label: 'Аренда / помещение' },
+  { key: 'salaries', label: 'ФОТ постоянный' },
+  { key: 'equipment', label: 'Амортизация оборудования' },
+  { key: 'certification', label: 'Сертификация' },
+  { key: 'marketing', label: 'Маркетинг' },
+  { key: 'rd', label: 'R&D' },
+  { key: 'warranty', label: 'Гарантийный фонд' },
+  { key: 'admin', label: 'Администрация, IT' },
+];
+
+function fmt(n) { return Math.round(n).toLocaleString('ru-RU'); }
+function fmtR(n) { return fmt(n) + ' ₽'; }
+function fmtD(n) { return '$' + fmt(n); }
+
+function getVarUSD() { return varItems.reduce((s,i) => s + S[i.key], 0); }
+function getVarRub() { return getVarUSD() * FX; }
+function getFixTotal() { return fixItems.reduce((s,i) => s + S[i.key], 0); }
+function getFullCost() { return getVarRub() + getFixTotal() / S.volume; }
+function getMargin() { return S.retail - getFullCost(); }
+function getBEP() { const cm = S.retail - getVarRub(); return cm > 0 ? Math.ceil(getFixTotal() / cm) : Infinity; }
+
+let bepChart, wfChart;
+
+function renderScenTabs() {
+  const el = document.getElementById('scenTabs');
+  el.innerHTML = '';
+  scenarios.forEach(sc => {
+    const b = document.createElement('button');
+    b.textContent = sc.label;
+    b.className = sc.id === activeScen ? 'active' : '';
+    b.onclick = () => { activeScen = sc.id; S = JSON.parse(JSON.stringify(sc)); renderAll(); };
+    el.appendChild(b);
+  });
+  document.getElementById('scenDesc').textContent = S.desc;
+}
+
+function renderSliders() {
+  const el = document.getElementById('sliders');
+  const isVostok = activeScen === 'vostok' || activeScen === 'amfibia';
+  const sliders = [
+    { key: 'volume', label: 'Объём (шт/год)', min: 100, max: isVostok ? 100000 : 10000, step: isVostok ? 1000 : 100, format: v => fmt(v) },
+    { key: 'retail', label: 'Розничная цена', min: 2000, max: activeScen === 'eta_premium' ? 300000 : (isVostok ? 20000 : 200000), step: 500, format: v => fmtR(v) },
+  ];
+  el.innerHTML = '';
+  sliders.forEach(sl => {
+    const row = document.createElement('div');
+    row.className = 'slider-row';
+    const val = Math.min(Math.max(S[sl.key], sl.min), sl.max);
+    row.innerHTML = '<label>' + sl.label + '</label><input type="range" min="' + sl.min + '" max="' + sl.max + '" step="' + sl.step + '" value="' + val + '" /><span class="sl-val">' + sl.format(val) + '</span>';
+    const inp = row.querySelector('input');
+    const out = row.querySelector('.sl-val');
+    inp.oninput = () => { S[sl.key] = Number(inp.value); out.textContent = sl.format(S[sl.key]); renderData(); };
+    el.appendChild(row);
+  });
+}
+
+function renderVarCosts() {
+  const el = document.getElementById('varCosts');
+  el.innerHTML = '';
+  varItems.forEach(item => {
+    const d = document.createElement('div');
+    d.className = 'row';
+    d.innerHTML = '<span class="row-label">' + item.label + '</span><span class="row-note">' + fmtD(S[item.key]) + '</span><span class="row-val">' + fmtR(S[item.key] * FX) + '</span>';
+    el.appendChild(d);
+  });
+  document.getElementById('unitCost').textContent = fmtR(getVarRub()) + ' (' + fmtD(getVarUSD()) + ')';
+}
+
+function renderFixCosts() {
+  const el = document.getElementById('fixCosts');
+  el.innerHTML = '';
+  fixItems.forEach(item => {
+    const perUnit = Math.round(S[item.key] / S.volume);
+    const d = document.createElement('div');
+    d.className = 'row';
+    d.innerHTML = '<span class="row-label">' + item.label + '</span><span class="row-note">' + fmtR(perUnit) + '/шт</span><span class="row-val">' + fmtR(S[item.key]) + '</span>';
+    el.appendChild(d);
+  });
+  document.getElementById('fixTotal').textContent = fmtR(getFixTotal());
+}
+
+function renderMetrics() {
+  const el = document.getElementById('metrics');
+  const full = getFullCost();
+  const margin = getMargin();
+  const bep = getBEP();
+  const marginPct = S.retail > 0 ? Math.round(margin / S.retail * 100) : 0;
+  const yearProfit = margin * S.volume;
+  const markup = full > 0 ? (S.retail / full).toFixed(1) : '—';
+  el.innerHTML =
+    '<div class="metric"><div class="metric-label">Полная себестоимость</div><div class="metric-val">' + fmtR(full) + '</div></div>' +
+    '<div class="metric"><div class="metric-label">Маржа / шт</div><div class="metric-val ' + (margin >= 0 ? 'green' : 'red') + '">' + fmtR(margin) + ' (' + marginPct + '%)</div></div>' +
+    '<div class="metric"><div class="metric-label">Безубыточность</div><div class="metric-val blue">' + (bep === Infinity ? 'невозможна' : fmt(bep) + ' шт') + '</div></div>' +
+    '<div class="metric"><div class="metric-label">Прибыль / год</div><div class="metric-val ' + (yearProfit >= 0 ? 'green' : 'red') + '">' + fmtR(yearProfit) + '</div></div>' +
+    '<div class="metric"><div class="metric-label">Наценка ×</div><div class="metric-val">×' + markup + '</div></div>' +
+    '<div class="metric"><div class="metric-label">Доля пост. в 1 шт</div><div class="metric-val">' + (full > 0 ? Math.round(getFixTotal() / S.volume / full * 100) : 0) + '%</div></div>';
+}
+
+function renderBEP() {
+  const bep = getBEP();
+  const maxX = Math.min(Math.max(bep < Infinity ? bep * 2 : S.volume * 2, S.volume * 1.3, 500), 120000);
+  const steps = 25;
+  const labels = [], rev = [], tc = [];
+  for (let i = 0; i <= steps; i++) {
+    const q = Math.round(maxX / steps * i);
+    labels.push(q);
+    rev.push(Math.round(q * S.retail));
+    tc.push(Math.round(getFixTotal() + q * getVarRub()));
+  }
+  const ctx = document.getElementById('bepChart');
+  if (bepChart) bepChart.destroy();
+  bepChart = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [
+        { label: 'Выручка', data: rev, borderColor: '#1D9E75', backgroundColor: 'transparent', pointRadius: 0, borderWidth: 2 },
+        { label: 'Затраты', data: tc, borderColor: '#E24B4A', backgroundColor: 'transparent', pointRadius: 0, borderWidth: 2, borderDash: [6,3] }
+      ]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      scales: {
+        x: { title: { display: true, text: 'шт/год', font: { size: 11 } }, ticks: { maxTicksLimit: 7, callback: v => v >= 1000 ? Math.round(v/1000)+'k' : v } },
+        y: { ticks: { callback: v => v >= 1e6 ? (v/1e6).toFixed(0)+'м' : v >= 1000 ? Math.round(v/1000)+'k' : v } }
+      },
+      plugins: { legend: { display: false }, tooltip: { callbacks: { label: c => c.dataset.label + ': ' + fmtR(c.raw) } } }
+    }
+  });
+  const h = document.getElementById('bepHint');
+  if (bep !== Infinity) {
+    h.textContent = 'Безубыточность: ~' + fmt(bep) + ' шт. ' + (S.volume >= bep ? 'При ' + fmt(S.volume) + ' шт/год производство прибыльно.' : 'Текущий объём (' + fmt(S.volume) + ') ниже — нужно наращивать или повышать цену.');
+  } else {
+    h.textContent = 'Маржинальная прибыль отрицательная — безубыточность невозможна.';
+  }
+}
+
+function renderWaterfall() {
+  const items = [
+    { l: 'Механизм', v: S.movement * FX },
+    { l: 'Корпус + стекло', v: (S.caseMat + S.glass + S.crown + S.caseback + S.gaskets) * FX },
+    { l: 'Циферблат', v: (S.dial + S.hands + S.lume) * FX },
+    { l: 'Ремешок', v: S.strap * FX },
+    { l: 'Сборка+QC+финиш', v: (S.assembly + S.qc + S.finishing) * FX },
+    { l: 'Упаковка', v: S.packaging * FX },
+    { l: 'Пост./шт', v: getFixTotal() / S.volume },
+    { l: 'Маржа', v: getMargin() },
+  ];
+  const labels = items.map(i => i.l);
+  labels.push('Цена');
+  const bases = [], bars = [], colors = [];
+  let run = 0;
+  items.forEach((item, idx) => {
+    bases.push(Math.round(run));
+    bars.push(Math.round(item.v));
+    colors.push(idx === items.length - 1 ? (item.v >= 0 ? '#1D9E75' : '#E24B4A') : '#534AB7');
+    run += item.v;
+  });
+  bases.push(0); bars.push(Math.round(S.retail)); colors.push('#185FA5');
+
+  const ctx = document.getElementById('wfChart');
+  if (wfChart) wfChart.destroy();
+  wfChart = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels,
+      datasets: [
+        { data: bases, backgroundColor: 'transparent', borderWidth: 0, stack: 'a' },
+        { data: bars, backgroundColor: colors, stack: 'a', borderRadius: 3 }
+      ]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      scales: {
+        x: { stacked: true, ticks: { font: { size: 10 }, maxRotation: 45, autoSkip: false }, grid: { display: false } },
+        y: { stacked: true, ticks: { callback: v => v >= 1000 ? Math.round(v/1000)+'k' : v }, grid: { color: 'rgba(0,0,0,.06)' } }
+      },
+      plugins: { legend: { display: false }, tooltip: { filter: c => c.datasetIndex === 1, callbacks: { label: c => c.label + ': ' + fmtR(c.raw) } } }
+    }
+  });
+}
+
+function renderData() {
+  renderVarCosts();
+  renderFixCosts();
+  renderMetrics();
+  renderBEP();
+  renderWaterfall();
+}
+
+function renderAll() {
+  renderScenTabs();
+  renderSliders();
+  renderData();
+}
+
+renderAll();
+</script>
+</body>
+</html>
